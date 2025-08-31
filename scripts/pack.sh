@@ -76,7 +76,7 @@ install_production_deps() {
     # Install Node.js dependencies (for asset building)
     if [ -f "package.json" ]; then
         log_info "Installing Node.js dependencies..."
-        npm ci --only=production --silent
+        npm install --only=production --silent 2>/dev/null || npm install --silent 2>/dev/null
         
         if [ $? -ne 0 ]; then
             log_warning "Node.js dependencies installation failed, continuing anyway"
