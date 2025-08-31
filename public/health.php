@@ -2,49 +2,41 @@
 <?php
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET');
+header('Access-Control-Allow-Methods: GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
-require_once __DIR__ . '/../vendor/autoload.php';
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
 
 try {
-    // Загружаем переменные окружения
-    $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
-    $dotenv->load();
-
-    // Подключение к базе данных
-    $socket = $_ENV['DB_SOCKET'] ?? null;
+    require_once __DIR__ . '/../vendor/autoload.php';
     
-    if ($socket && file_exists($socket)) {
-        $dsn = "mysql:unix_socket={$socket};dbname={$_ENV['DB_NAME']};charset=utf8mb4";
+    use Dotenv\Dotenv;
+    
+    // Загружаем переменные окружения
+    $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
+    $dotenv->safeLoad();
+    
+    // Проверяем подключение к базе данных
+    $pdo = require __DIR__ . '/../config/db.php';
+    
+    // Простой тест подключения
+    $stmt = $pdo->query('SELECT 1 as test');
+    $result = $stmt->fetch();
+    
+    if ($result && $result['test'] == 1) {
+        http_response_code(200);
+        echo json_encode([
+            'status' => 'ok',
+            'database' => 'connected',
+            'timestamp' => date('Y-m-d H:i:s')
+        ]);
     } else {
-        $dsn = "mysql:host={$_ENV['DB_HOST']};port={$_ENV['DB_PORT']};dbname={$_ENV['DB_NAME']};charset=utf8mb4";
+        throw new Exception('Database test query failed');
     }
     
-    $pdo = new PDO(
-        $dsn,
-        $_ENV['DB_USER'],
-        $_ENV['DB_PASS'],
-        [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]
-    );
-
-    // Проверяем подключение к БД
-    $stmt = $pdo->query('SELECT 1');
-    $dbStatus = $stmt ? 'connected' : 'failed';
-
-    echo json_encode([
-        'status' => 'ok',
-        'timestamp' => date('Y-m-d H:i:s'),
-        'database' => $dbStatus,
-        'php_version' => PHP_VERSION,
-        'memory_usage' => memory_get_usage(true),
-        'server' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown'
-    ]);
-
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode([
@@ -53,4 +45,3 @@ try {
         'timestamp' => date('Y-m-d H:i:s')
     ]);
 }
-?>
