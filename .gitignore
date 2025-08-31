@@ -47,3 +47,16 @@ vendor/composer/tmp-*.zip~
 # Cypress
 cypress/screenshots/
 cypress/videos/
+
+# Testing and Baseline Capture
+/baseline/
+/screenshots/
+/har/
+/deploy_package/
+deploy_package.zip
+deploy_package_report.txt
+deploy_backup_*/
+
+# Playwright
+test-results/
+playwright-report/
