@@ -1,3 +1,4 @@
+
 <?php
 require_once __DIR__ . '/../vendor/autoload.php';
 
@@ -7,100 +8,74 @@ use Dotenv\Dotenv;
 $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
 $dotenv->safeLoad();
 
-$host = $_ENV['DB_HOST'] ?? '127.0.0.1';
-$port = $_ENV['DB_PORT'] ?? 3306;
-$dbname = $_ENV['DB_NAME'] ?? 'webapp';
-$username = $_ENV['DB_USER'] ?? 'webapp';
-$password = $_ENV['DB_PASS'] ?? '';
-
-echo "🗄️  Запуск миграций базы данных...\n";
-echo "Подключение к: mysql://$username@$host:$port/$dbname\n";
+echo "🗄️ Запуск миграций базы данных...\n";
 
 try {
-    // Сначала пытаемся подключиться без указания базы данных
-    $pdo = new PDO("mysql:host=$host;port=$port", $username, $password);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-    // Создаем базу данных если она не существует
-    $pdo->exec("CREATE DATABASE IF NOT EXISTS `$dbname` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-    echo "✅ База данных '$dbname' готова\n";
-
-    // Переподключаемся к конкретной базе
-    $pdo = new PDO("mysql:host=$host;port=$port;dbname=$dbname", $username, $password);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-    echo "✅ Подключение к базе данных успешно!\n";
-
-    // Создаем таблицу для отслеживания миграций
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS migrations (
+    $pdo = require __DIR__ . '/../config/db.php';
+    
+    // Определяем тип базы данных
+    $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    echo "📋 Используется: $driver\n";
+    
+    // Создаем таблицу миграций
+    if ($driver === 'sqlite') {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS migrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            migration VARCHAR(255) NOT NULL UNIQUE,
+            executed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
+    } else {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS migrations (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            filename VARCHAR(255) NOT NULL UNIQUE,
+            migration VARCHAR(255) NOT NULL UNIQUE,
             executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ");
-
-    // Выполняем миграции в порядке
-    $migrations = [
-        '001_create_users.sql',
-        '002_create_sessions.sql',
-        '003_create_logs.sql',
-        '004_add_superadmin.sql'
-    ];
-
-    foreach ($migrations as $migration) {
-        $migrationPath = __DIR__ . '/../migrations/' . $migration;
-
-        // Проверяем, была ли уже выполнена эта миграция
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM migrations WHERE filename = ?");
-        $stmt->execute([$migration]);
-
+        ) ENGINE=InnoDB");
+    }
+    
+    $migrationsDir = __DIR__ . '/../migrations';
+    $files = glob($migrationsDir . '/*.sql');
+    sort($files);
+    
+    foreach ($files as $file) {
+        $migrationName = basename($file, '.sql');
+        
+        // Проверяем, выполнена ли миграция
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM migrations WHERE migration = ?");
+        $stmt->execute([$migrationName]);
+        
         if ($stmt->fetchColumn() > 0) {
-            echo "⏭️  Миграция $migration уже выполнена\n";
+            echo "⏭️ Пропуск $migrationName (уже выполнена)\n";
             continue;
         }
-
-        if (file_exists($migrationPath)) {
-            echo "🔄 Выполняется миграция: $migration\n";
-
-            $sql = file_get_contents($migrationPath);
-
-            // Разделяем SQL на отдельные запросы
-            $statements = array_filter(
-                array_map('trim', explode(';', $sql)),
-                function($stmt) { return !empty($stmt); }
-            );
-
-            $pdo->beginTransaction();
-
-            try {
-                foreach ($statements as $statement) {
-                    if (!empty($statement)) {
-                        $pdo->exec($statement);
-                    }
-                }
-
-                // Записываем факт выполнения миграции
-                $stmt = $pdo->prepare("INSERT INTO migrations (filename) VALUES (?)");
-                $stmt->execute([$migration]);
-
-                $pdo->commit();
-                echo "✅ Миграция $migration выполнена успешно!\n";
-
-            } catch (\Exception $e) {
-                $pdo->rollBack();
-                throw $e;
-            }
-
-        } else {
-            echo "⚠️  Файл миграции $migration не найден!\n";
+        
+        echo "▶️ Выполнение миграции: $migrationName\n";
+        
+        $sql = file_get_contents($file);
+        
+        // Адаптируем SQL для SQLite
+        if ($driver === 'sqlite') {
+            $sql = str_replace('AUTO_INCREMENT', '', $sql);
+            $sql = str_replace('ENGINE=InnoDB', '', $sql);
+            $sql = str_replace('CHARSET=utf8mb4', '', $sql);
+            $sql = str_replace('COLLATE=utf8mb4_unicode_ci', '', $sql);
+            $sql = str_replace('TIMESTAMP DEFAULT CURRENT_TIMESTAMP', 'DATETIME DEFAULT CURRENT_TIMESTAMP', $sql);
+            $sql = str_replace('INT AUTO_INCREMENT PRIMARY KEY', 'INTEGER PRIMARY KEY AUTOINCREMENT', $sql);
         }
+        
+        $pdo->exec($sql);
+        
+        // Записываем миграцию как выполненную
+        $stmt = $pdo->prepare("INSERT INTO migrations (migration) VALUES (?)");
+        $stmt->execute([$migrationName]);
+        
+        echo "✅ Миграция $migrationName выполнена успешно\n";
     }
-
+    
     echo "🎉 Все миграции выполнены успешно!\n";
-
-} catch (\Exception $e) {
+    
+} catch (Exception $e) {
     echo "❌ Ошибка миграции: " . $e->getMessage() . "\n";
-    echo "Трассировка:\n" . $e->getTraceAsString() . "\n";
+    echo "Трассировка:\n";
+    echo $e->getTraceAsString() . "\n";
     exit(1);
 }
