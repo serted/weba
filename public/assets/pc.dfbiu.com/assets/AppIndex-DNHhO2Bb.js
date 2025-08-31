@@ -1,0 +1,1 @@
+import{A as a}from"./AppDownloadInfo-hMcrR5Gg.js";import{f as o,c as s,b as e,a as t,ap as n,o as c,_}from"./index-C3VaJCuS.js";/* empty css                   */const p={class:"container"},r={class:"main"},d=o({__name:"AppIndex",setup(i){return(m,f)=>(c(),s("div",p,[e(n),t("main",r,[e(a)])]))}}),A=_(d,[["__scopeId","data-v-4de73272"]]);export{A as default};

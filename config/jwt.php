@@ -1,0 +1,1 @@
+<?php return ['secret'=>'change-me','issuer'=>'webapp','ttl'=>604800];

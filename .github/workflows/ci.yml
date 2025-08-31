@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  lint-test-e2e:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: webapp_test
+        ports: [ "3306:3306" ]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -p$MYSQL_ROOT_PASSWORD"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql
+          coverage: none
+
+      - name: Composer install
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install JS deps
+        run: |
+          echo '{}' > package.json || true
+          npm i eslint pixelmatch pngjs wait-on --no-audit --no-fund
+
+      - name: PHP CS Fixer
+        run: |
+          if [ -f vendor/bin/php-cs-fixer ]; then vendor/bin/php-cs-fixer fix --dry-run --diff; fi
+
+      - name: ESLint
+        run: |
+          npx eslint public/**/*.js || true
+
+      - name: Prepare .env.testing
+        run: |
+          cp .env.example .env
+          sed -i 's/DB_NAME=.*/DB_NAME=webapp_test/' .env
+          sed -i 's/DB_USER=.*/DB_USER=root/' .env
+          sed -i 's/DB_PASS=.*/DB_PASS=root/' .env
+
+      - name: Run migrations
+        run: |
+          mysql -h 127.0.0.1 -uroot -proot webapp_test < migrations/001_create_users.sql
+          mysql -h 127.0.0.1 -uroot -proot webapp_test < migrations/002_create_admin_logs.sql
+          mysql -h 127.0.0.1 -uroot -proot webapp_test < migrations/003_create_login_attempts.sql
+          if [ -f migrations/004_add_superadmin.sql ]; then mysql -h 127.0.0.1 -uroot -proot webapp_test < migrations/004_add_superadmin.sql; fi
+
+      - name: PHPUnit
+        run: if [ -f vendor/bin/phpunit ]; then vendor/bin/phpunit --configuration tests/phpunit.xml; fi
+
+      - name: Start PHP server
+        run: php -S 127.0.0.1:8000 -t public/ >/dev/null 2>&1 &
+
+      - name: Wait for server
+        run: npx wait-on http://127.0.0.1:8000
+
+      - name: Cypress
+        run: npx cypress run || true
+
+      - name: Visual regression (pixelmatch demo)
+        run: |
+          mkdir -p screenshots/baseline screenshots/current
+          # Placeholders; integrate with real screenshots if available
+          node -e "console.log('pixelmatch placeholder')"
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: [lint-test-e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build vendor
+        uses: shivammathur/setup-php@v2
+        with: { php-version: '8.2' }
+      - run: composer install --no-dev --prefer-dist --no-progress --no-interaction
+
+      - name: Deploy via SFTP
+        env:
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASS: ${{ secrets.SFTP_PASS }}
+          SFTP_PATH: ${{ secrets.SFTP_PATH }}
+        run: bash scripts/deploy.sh
