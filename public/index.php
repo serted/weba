@@ -14,20 +14,9 @@ $dotenv->safeLoad();
 // Создаем контейнер
 $container = new Container();
 
-// Настройка PDO
-$dsn = sprintf(
-    "mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4",
-    $_ENV['DB_HOST'] ?? '127.0.0.1',
-    $_ENV['DB_PORT'] ?? '3306',
-    $_ENV['DB_NAME'] ?? 'webapp'
-);
-
+// Подключение к базе данных
 try {
-    $pdo = new PDO($dsn, $_ENV['DB_USER'] ?? 'webapp', $_ENV['DB_PASS'] ?? '', [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false
-    ]);
+    $pdo = require __DIR__ . '/../config/db.php';
 } catch (\PDOException $e) {
     http_response_code(500);
     echo json_encode(['error' => 'Database connection failed: ' . $e->getMessage()]);
@@ -37,8 +26,8 @@ try {
 // JWT конфигурация
 $jwtConf = [
     'secret' => $_ENV['JWT_SECRET'] ?? 'change-me-in-production',
-    'issuer' => $_ENV['JWT_ISSUER'] ?? 'webapp',
-    'ttl'    => (int)($_ENV['JWT_TTL'] ?? 604800),
+    'issuer' => $_ENV['APP_URL'] ?? 'webapp',
+    'ttl'    => (int)($_ENV['JWT_EXPIRE'] ?? 3600),
 ];
 
 // Добавляем в контейнер
@@ -50,7 +39,36 @@ $container->set('env', $_ENV);
 AppFactory::setContainer($container);
 $app = AppFactory::create();
 
-// Middleware
+// Добавляем middleware
+$app->addRoutingMiddleware();
+$app->addBodyParsingMiddleware();
+
+// Error middleware
+$errorMiddleware = $app->addErrorMiddleware(
+    $_ENV['APP_DEBUG'] === 'true',
+    true,
+    true
+);
+
+// Настройка CORS
+$app->options('/{routes:.+}', function ($request, $response) {
+    return $response;
+});
+
+$app->add(function ($request, $handler) {
+    $response = $handler->handle($request);
+    return $response
+        ->withHeader('Access-Control-Allow-Origin', '*')
+        ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
+        ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+});
+
+// Загружаем маршруты
+$routes = require __DIR__ . '/../src/routes.php';
+$routes($app);
+
+// Запускаем приложение
+$app->run();e
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 

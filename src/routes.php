@@ -1,55 +1,68 @@
 
 <?php
 
+use Slim\App;
 use Slim\Routing\RouteCollectorProxy;
 use App\Controllers\AuthController;
 use App\Controllers\UserController;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RoleMiddleware;
 
-// Health check без middleware
-$app->get('/api/health', function ($request, $response) {
-    $data = [
-        'status' => 'ok',
-        'timestamp' => time(),
-        'version' => '1.0.0',
-        'environment' => $_ENV['APP_ENV'] ?? 'production'
-    ];
+return function (App $app) {
+    $container = $app->getContainer();
     
-    $response->getBody()->write(json_encode($data));
-    return $response->withHeader('Content-Type', 'application/json');
-});
-
-// API группа с middleware
-$app->group('/api', function (RouteCollectorProxy $group) {
+    // Получаем зависимости из контейнера
+    $pdo = $container->get('pdo');
+    $jwtConf = $container->get('jwtConf');
     
-    // Auth routes (без авторизации)
-    $group->post('/register', [AuthController::class, 'register']);
-    $group->post('/login', [AuthController::class, 'login']);
-    $group->post('/logout', [AuthController::class, 'logout']);
+    // Создаем контроллеры
+    $authController = new AuthController($pdo, $jwtConf);
+    $userController = new UserController($pdo);
     
-    // Protected routes
-    $group->group('', function (RouteCollectorProxy $protected) {
-        $protected->get('/profile', [UserController::class, 'profile']);
-        $protected->put('/profile', [UserController::class, 'updateProfile']);
-        
-        // Admin routes
-        $protected->group('/admin', function (RouteCollectorProxy $admin) {
-            $admin->get('/users', [UserController::class, 'listUsers']);
-            $admin->post('/users', [UserController::class, 'createUser']);
-            $admin->put('/users/{id}', [UserController::class, 'updateUser']);
-            $admin->delete('/users/{id}', [UserController::class, 'deleteUser']);
-        })->add(new RoleMiddleware(['admin', 'superadmin']));
-        
-    })->add(new AuthMiddleware());
-});
-
-// Fallback для SPA (все остальные маршруты)
-$app->get('/{routes:.+}', function ($request, $response) {
-    $file = __DIR__ . '/../public/index.html';
-    if (file_exists($file)) {
-        $response->getBody()->write(file_get_contents($file));
-        return $response->withHeader('Content-Type', 'text/html');
-    }
-    return $response->withStatus(404);
-});
+    // Создаем middleware
+    $authMiddleware = new AuthMiddleware($jwtConf);
+    $adminMiddleware = new RoleMiddleware(['admin', 'super-admin']);
+    $superAdminMiddleware = new RoleMiddleware(['super-admin']);
+    
+    // Публичные маршруты
+    $app->post('/api/auth/login', [$authController, 'login']);
+    $app->post('/api/auth/register', [$authController, 'register']);
+    
+    // Маршруты, требующие аутентификации
+    $app->group('/api', function (RouteCollectorProxy $group) use ($userController) {
+        $group->get('/profile', [$userController, 'getProfile']);
+        $group->put('/profile', [$userController, 'updateProfile']);
+    })->add($authMiddleware);
+    
+    // Админские маршруты
+    $app->group('/api/admin', function (RouteCollectorProxy $group) {
+        $group->get('/users', function ($request, $response) {
+            $response->getBody()->write(json_encode(['message' => 'Admin users list']));
+            return $response->withHeader('Content-Type', 'application/json');
+        });
+    })->add($adminMiddleware)->add($authMiddleware);
+    
+    // Root endpoint
+    $app->get('/', function ($request, $response) {
+        $response->getBody()->write(json_encode([
+            'message' => 'WebApp API',
+            'version' => '1.0',
+            'endpoints' => [
+                'POST /api/auth/login',
+                'POST /api/auth/register',
+                'GET /api/profile',
+                'PUT /api/profile'
+            ]
+        ]));
+        return $response->withHeader('Content-Type', 'application/json');
+    });
+    
+    // Health check
+    $app->get('/health', function ($request, $response) {
+        $response->getBody()->write(json_encode([
+            'status' => 'ok',
+            'timestamp' => date('Y-m-d H:i:s')
+        ]));
+        return $response->withHeader('Content-Type', 'application/json');
+    });
+};

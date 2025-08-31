@@ -1,42 +1,37 @@
+
 <?php
-namespace App\middleware;
 
-use Psr\Http\Message\ServerRequestInterface as Request;
+namespace App\Middleware;
+
 use Psr\Http\Message\ResponseInterface as Response;
-use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
+use Psr\Http\Message\ServerRequestInterface as Request;
+use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 
-final class RoleMiddleware
+class RoleMiddleware 
 {
-    public function __construct(private array $jwtConf, private array $roles = []) {}
-
-    public function __invoke(Request $request, $handler): Response
+    private $allowedRoles;
+    
+    public function __construct(array $allowedRoles) 
     {
-        $token = $_COOKIE['TOKEN'] ?? '';
-        if (!$token) return $this->deny();
-
-        try {
-            $claims = JWT::decode($token, new Key($this->jwtConf['secret'], 'HS256'));
-        } catch (\Throwable $e) {
-            return $this->deny();
-        }
-
-        $role = $claims->role ?? 'user';
-        if ($this->roles && !in_array($role, $this->roles, true)) {
-            return $this->deny(403);
-        }
-
-        return $handler->handle($request->withAttribute('auth', [
-            'id' => (int)($claims->sub ?? 0),
-            'email' => (string)($claims->email ?? ''),
-            'role' => (string)$role,
-        ]));
+        $this->allowedRoles = $allowedRoles;
     }
-
-    private function deny(int $code = 401): Response
+    
+    public function __invoke(Request $request, RequestHandler $handler): Response 
     {
-        $res = new \Slim\Psr7\Response($code);
-        $res->getBody()->write(json_encode(['error'=>$code===401 ? 'Unauthorized' : 'Forbidden']));
-        return $res->withHeader('Content-Type','application/json');
+        $user = $request->getAttribute('user');
+        
+        if (!$user || !isset($user['role'])) {
+            $response = new \Slim\Psr7\Response();
+            $response->getBody()->write(json_encode(['error' => 'Пользователь не аутентифицирован']));
+            return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
+        }
+        
+        if (!in_array($user['role'], $this->allowedRoles)) {
+            $response = new \Slim\Psr7\Response();
+            $response->getBody()->write(json_encode(['error' => 'Недостаточно прав доступа']));
+            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+        }
+        
+        return $handler->handle($request);
     }
 }

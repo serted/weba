@@ -1,29 +1,40 @@
+
 <?php
+
 namespace App\helpers;
 
-final class Csrf
+class Csrf 
 {
-    public static function issue(array $env): array
+    private static $secret;
+    
+    public static function setSecret($secret) 
     {
-        $ttl     = (int)($env['CSRF_TTL'] ?? 7200);
-        $secret  = $env['CSRF_SECRET'] ?? 'csrf-secret';
-        $token   = bin2hex(random_bytes(32));
-        $exp     = time() + $ttl;
-        $payload = $token . '|' . $exp;
-        $sig     = hash_hmac('sha256', $payload, $secret);
-        return [$token, $exp, $sig];
+        self::$secret = $secret;
     }
-
-    public static function sign(array $env, string $token, int $exp): string
+    
+    public static function generateToken(): string 
     {
-        $secret  = $env['CSRF_SECRET'] ?? 'csrf-secret';
-        return hash_hmac('sha256', $token . '|' . $exp, $secret);
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        
+        $sessionId = session_id();
+        return hash_hmac('sha256', $sessionId, self::$secret ?? 'default-secret');
     }
-
-    public static function verify(array $env, string $token, int $exp, string $sig): bool
+    
+    public static function validateToken($token): bool 
     {
-        if ($exp < time()) return false;
-        $calc = self::sign($env, $token, $exp);
-        return hash_equals($calc, $sig);
+        if (empty($token)) {
+            return false;
+        }
+        
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        
+        $sessionId = session_id();
+        $expectedToken = hash_hmac('sha256', $sessionId, self::$secret ?? 'default-secret');
+        
+        return hash_equals($expectedToken, $token);
     }
 }

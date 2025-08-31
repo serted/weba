@@ -1,95 +1,81 @@
+
 <?php
-namespace App\middleware;
 
-use PDO;
-use Psr\Http\Message\ServerRequestInterface as Request;
+namespace App\Middleware;
+
 use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ServerRequestInterface as Request;
+use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 
-final class RateLimitMiddleware
+class RateLimitMiddleware 
 {
-    public function __construct(private PDO $pdo, private array $env) {}
-
-    public function __invoke(Request $request, $handler): Response
+    private $maxRequests;
+    private $timeWindow;
+    private $storage = [];
+    
+    public function __construct($maxRequests = 60, $timeWindow = 60) 
     {
-        $method = strtoupper($request->getMethod());
-        $path   = $request->getUri()->getPath();
-
-        if (!in_array($method, ['POST','PUT','PATCH','DELETE']) || !preg_match('#^/api/#',$path)) {
-            return $handler->handle($request);
+        $this->maxRequests = $maxRequests;
+        $this->timeWindow = $timeWindow;
+    }
+    
+    public function __invoke(Request $request, RequestHandler $handler): Response 
+    {
+        $clientIP = $this->getClientIP($request);
+        $currentTime = time();
+        
+        // Очищаем старые записи
+        $this->cleanupOldEntries($currentTime);
+        
+        // Проверяем лимит
+        if (!isset($this->storage[$clientIP])) {
+            $this->storage[$clientIP] = [];
         }
-
-        $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-        $action = $this->actionFor($path);
-        [$window, $max] = $this->limitsFor($action);
-
-        if ($this->exceeded($action, $ip, $window, $max)) {
-            $retryAfter = 1 + $this->secondsToReset($action, $ip, $window);
-            $res = new \Slim\Psr7\Response(429);
-            $res = $res->withHeader('Retry-After', (string)$retryAfter)
-                       ->withHeader('Content-Type','application/json');
-            $res->getBody()->write(json_encode(['error'=>'Too Many Requests']));
-            return $res;
+        
+        $this->storage[$clientIP][] = $currentTime;
+        
+        $requestCount = count($this->storage[$clientIP]);
+        
+        if ($requestCount > $this->maxRequests) {
+            $response = new \Slim\Psr7\Response();
+            $response->getBody()->write(json_encode(['error' => 'Превышен лимит запросов']));
+            return $response->withStatus(429)->withHeader('Content-Type', 'application/json');
         }
-
-        $this->record($action, $ip);
+        
         return $handler->handle($request);
     }
-
-    private function actionFor(string $path): string
+    
+    private function getClientIP(Request $request): string 
     {
-        if (str_starts_with($path, '/api/login'))    return 'login';
-        if (str_starts_with($path, '/api/register')) return 'register';
-        return 'api_mutation';
-    }
-
-    private function limitsFor(string $action): array
-    {
-        $map = [
-          'api_mutation' => [
-            (int)($this->env['RATE_LIMIT_MUTATION_WINDOW'] ?? 60),
-            (int)($this->env['RATE_LIMIT_MUTATION_MAX'] ?? 60),
-          ],
-          'login' => [
-            (int)($this->env['RATE_LIMIT_LOGIN_WINDOW'] ?? 60),
-            (int)($this->env['RATE_LIMIT_LOGIN_MAX'] ?? 10),
-          ],
-          'register' => [
-            (int)($this->env['RATE_LIMIT_REGISTER_WINDOW'] ?? 60),
-            (int)($this->env['RATE_LIMIT_REGISTER_MAX'] ?? 10),
-          ],
+        $headers = [
+            'HTTP_CF_CONNECTING_IP',
+            'HTTP_CLIENT_IP',
+            'HTTP_X_FORWARDED_FOR',
+            'HTTP_X_FORWARDED',
+            'HTTP_FORWARDED_FOR',
+            'HTTP_FORWARDED',
+            'REMOTE_ADDR'
         ];
-        return $map[$action] ?? $map['api_mutation'];
+        
+        foreach ($headers as $header) {
+            if (!empty($_SERVER[$header])) {
+                return $_SERVER[$header];
+            }
+        }
+        
+        return '127.0.0.1';
     }
-
-    private function keyHash(string $action, string $ip): string
+    
+    private function cleanupOldEntries($currentTime): void 
     {
-        return hash('sha256', $action . '|' . $ip);
-    }
-
-    private function exceeded(string $action, string $ip, int $window, int $max): bool
-    {
-        $cut = date('Y-m-d H:i:s', time() - $window);
-        $key = $this->keyHash($action, $ip);
-        $st  = $this->pdo->prepare("SELECT COUNT(*) c FROM login_attempts WHERE action=:a AND key_hash=:k AND created_at >= :cut");
-        $st->execute([':a'=>$action, ':k'=>$key, ':cut'=>$cut]);
-        return (int)$st->fetchColumn() >= $max;
-    }
-
-    private function secondsToReset(string $action, string $ip, int $window): int
-    {
-        $key = $this->keyHash($action, $ip);
-        $st  = $this->pdo->prepare("SELECT MIN(created_at) AS first FROM login_attempts WHERE action=:a AND key_hash=:k AND created_at >= :cut");
-        $st->execute([':a'=>$action, ':k'=>$key, ':cut'=>date('Y-m-d H:i:s', time() - $window)]);
-        $first = $st->fetchColumn();
-        if (!$first) return 0;
-        $elapsed = time() - strtotime($first);
-        return max(0, $window - $elapsed);
-    }
-
-    private function record(string $action, string $ip): void
-    {
-        $key = $this->keyHash($action, $ip);
-        $st  = $this->pdo->prepare("INSERT INTO login_attempts(action, key_hash, ip, created_at) VALUES (:a,:k,:ip,NOW())");
-        $st->execute([':a'=>$action, ':k'=>$key, ':ip'=>$ip]);
+        foreach ($this->storage as $ip => &$timestamps) {
+            $timestamps = array_filter($timestamps, function($timestamp) use ($currentTime) {
+                return ($currentTime - $timestamp) <= $this->timeWindow;
+            });
+            
+            if (empty($timestamps)) {
+                unset($this->storage[$ip]);
+            }
+        }
     }
 }

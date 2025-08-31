@@ -1,4 +1,3 @@
-
 #!/bin/bash
 
 echo "🔧 АВТОМАТИЧЕСКОЕ ИСПРАВЛЕНИЕ ВСЕХ ОШИБОК..."
@@ -26,7 +25,7 @@ EOF
     echo "✅ .htaccess создан"
 fi
 
-# Проверяем JavaScript файлы
+# Проверяем JavaScript файлов
 echo "🔍 Проверка JavaScript файлов..."
 if [ -d "public/assets" ]; then
     find public/assets -name "*.js" -type f 2>/dev/null | while read file; do
@@ -41,18 +40,19 @@ fi
 # Проверяем PHP файлы и исправляем синтаксические ошибки
 echo "🔍 Проверка PHP файлов..."
 find . -name "*.php" -not -path "./vendor/*" -type f | while read file; do
-    if ! php -l "$file" >/dev/null 2>&1; then
-        echo "⚠️ Синтаксическая ошибка в $file"
-        
+    if ! php -l "$file" > /dev/null 2>&1; then
+            echo "⚠️ Синтаксическая ошибка в $file"
+            head -n 3 "$file" | grep -E "^<\?php|namespace|class"
+
         # Исправляем BOM символы
         if file "$file" | grep -q "UTF-8 Unicode (with BOM)"; then
             echo "🔧 Удаление BOM из $file"
             sed -i '1s/^\xEF\xBB\xBF//' "$file"
         fi
-        
+
         # Исправляем пробелы в начале файла
         sed -i 's/^[[:space:]]*<?php/<?php/' "$file"
-        
+
         # Проверяем снова после исправления
         if php -l "$file" >/dev/null 2>&1; then
             echo "✅ Исправлен $file"

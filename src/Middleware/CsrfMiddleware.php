@@ -1,60 +1,49 @@
 <?php
-namespace App\middleware;
 
-use App\helpers\Csrf;
-use Psr\Http\Message\ServerRequestInterface as Request;
+namespace App\Middleware;
+
 use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ServerRequestInterface as Request;
+use Psr\Http\Server\RequestHandlerInterface as RequestHandler;
 
-final class CsrfMiddleware
+class CsrfMiddleware 
 {
-    public function __construct(private array $env) {}
+    private $secret;
 
-    public function __invoke(Request $request, $handler): Response
+    public function __construct($secret) 
     {
-        $method = strtoupper($request->getMethod());
-        $path   = $request->getUri()->getPath();
+        $this->secret = $secret;
+    }
 
-        $cookieName   = $this->env['CSRF_COOKIE_NAME']   ?? 'CSRF-TOKEN';
-        $cookieSigned = $this->env['CSRF_COOKIE_SIGNED'] ?? 'CSRF-TOKEN-SIGNED';
-        $headerName   = $this->env['CSRF_HEADER']        ?? 'X-CSRF-Token';
+    public function __invoke(Request $request, RequestHandler $handler): Response 
+    {
+        $method = $request->getMethod();
 
-        // Ensure tokens exist on safe methods
-        if (in_array($method, ['GET','HEAD','OPTIONS'])) {
-            $this->ensureTokens();
-            return $handler->handle($request);
-        }
+        if (in_array($method, ['POST', 'PUT', 'DELETE', 'PATCH'])) {
+            $csrfToken = $request->getHeaderLine('X-CSRF-Token');
 
-        // Only protect API mutations
-        if (in_array($method, ['POST','PUT','PATCH','DELETE']) && preg_match('#^/api/#', $path)) {
-            $headerToken = $request->getHeaderLine($headerName);
-            $signed      = $_COOKIE[$cookieSigned] ?? '';
-            $parts       = explode('|', $signed);
-            if (count($parts) !== 2) return $this->deny(419, 'Bad CSRF signature');
-            [$exp, $sig] = $parts; $exp = (int)$exp;
-            if (!$headerToken || !Csrf::verify($this->env, $headerToken, $exp, $sig)) {
-                return $this->deny(419, 'CSRF verification failed');
+            if (!$this->validateToken($csrfToken)) {
+                $response = new \Slim\Psr7\Response();
+                $response->getBody()->write(json_encode(['error' => 'Недействительный CSRF токен']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             }
         }
 
         return $handler->handle($request);
     }
 
-    private function ensureTokens(): void
+    private function validateToken($token): bool 
     {
-        $cookieName   = $this->env['CSRF_COOKIE_NAME']   ?? 'CSRF-TOKEN';
-        $cookieSigned = $this->env['CSRF_COOKIE_SIGNED'] ?? 'CSRF-TOKEN-SIGNED';
-        $needRotate = empty($_COOKIE[$cookieName]) || empty($_COOKIE[$cookieSigned]);
-        if ($needRotate) {
-            [$token, $exp, $sig] = Csrf::issue($this->env);
-            setcookie($cookieName, $token, ['expires'=>$exp,'httponly'=>false,'secure'=>isset($_SERVER['HTTPS']),'samesite'=>'Lax','path'=>'/']);
-            setcookie($cookieSigned, $exp.'|'.$sig, ['expires'=>$exp,'httponly'=>true,'secure'=>isset($_SERVER['HTTPS']),'samesite'=>'Lax','path'=>'/']);
+        if (empty($token)) {
+            return false;
         }
+
+        $expectedToken = hash_hmac('sha256', session_id(), $this->secret);
+        return hash_equals($expectedToken, $token);
     }
 
-    private function deny(int $code, string $message): Response
+    public function generateToken(): string 
     {
-        $response = new \Slim\Psr7\Response($code);
-        $response->getBody()->write(json_encode(['error' => $message]));
-        return $response->withHeader('Content-Type', 'application/json');
+        return hash_hmac('sha256', session_id(), $this->secret);
     }
 }
