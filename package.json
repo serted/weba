@@ -7,6 +7,10 @@
     "visual-regression": "node scripts/visual-regression.js",
     "html-diff": "node scripts/html-diff.js",
     "har-diff": "node scripts/har-diff.js",
+    "final-verification": "node scripts/final-verification.js",
+    "cypress:modal": "npx cypress run --spec \"cypress/e2e/modal.cy.js\" --headless",
+    "cypress:auth": "npx cypress run --spec \"cypress/e2e/auth-ui.cy.js\" --headless",
+    "cypress:all": "npx cypress run --headless",
     "pack": "bash scripts/pack.sh"
   },
   "devDependencies": {
@@ -16,7 +20,7 @@
     "puppeteer": "^21.11.0",
     "playwright": "^1.40.0",
     "html-differ": "^1.4.0",
-    "jsdiff": "^5.0.0",
+    "diff": "^5.0.0",
     "har-validator": "^5.1.5"
   }
 }
