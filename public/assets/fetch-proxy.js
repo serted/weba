@@ -48,3 +48,75 @@
   }
   window.XMLHttpRequest = ProxyXHR;
 })();
+// Сохраняем оригинальный fetch
+const originalFetch = window.fetch;
+
+// Переопределяем fetch для проксирования API запросов
+window.fetch = function(url, options = {}) {
+    // Проверяем, является ли URL относительным API запросом
+    if (typeof url === 'string' && url.startsWith('/api/')) {
+        // Используем текущий хост для API запросов
+        const apiUrl = window.location.origin + url;
+        
+        // Добавляем CSRF токен если его нет
+        if (!options.headers) {
+            options.headers = {};
+        }
+        
+        // Получаем CSRF токен из meta тега или cookie
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                         getCookie('CSRF-TOKEN');
+        
+        if (csrfToken && (options.method === 'POST' || options.method === 'PUT' || options.method === 'DELETE')) {
+            options.headers['X-CSRF-Token'] = csrfToken;
+        }
+        
+        // Добавляем Content-Type для JSON запросов
+        if (options.body && typeof options.body === 'string') {
+            options.headers['Content-Type'] = 'application/json';
+        }
+        
+        console.log('API Request:', apiUrl, options);
+        return originalFetch(apiUrl, options);
+    }
+    
+    // Для всех остальных запросов используем оригинальный fetch
+    return originalFetch(url, options);
+};
+
+// Вспомогательная функция для получения cookie
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+}
+
+// Функция для установки токена авторизации
+window.setAuthToken = function(token) {
+    if (token) {
+        localStorage.setItem('authToken', token);
+    } else {
+        localStorage.removeItem('authToken');
+    }
+};
+
+// Функция для получения токена авторизации
+window.getAuthToken = function() {
+    return localStorage.getItem('authToken');
+};
+
+// Автоматически добавляем Authorization header для API запросов
+const originalFetchWithAuth = window.fetch;
+window.fetch = function(url, options = {}) {
+    if (typeof url === 'string' && url.startsWith('/api/')) {
+        const token = getAuthToken();
+        if (token) {
+            if (!options.headers) {
+                options.headers = {};
+            }
+            options.headers['Authorization'] = `Bearer ${token}`;
+        }
+    }
+    
+    return originalFetchWithAuth(url, options);
+};

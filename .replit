@@ -1,4 +1,51 @@
-modules = ["web", "php-8.2", "nodejs-20", "bash"]
+
+language = "php"
+modules = ["php-8.2", "nodejs-20"]
 
 [nix]
-channel = "stable-25_05"
+channel = "stable-24_05"
+
+[deployment]
+run = ["sh", "-c", "php -S 0.0.0.0:5000 -t public"]
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[env]
+PATH = "/home/runner/.nix-profile/bin"
+
+[workflows]
+runButton = "Development Server"
+
+[[workflows.workflow]]
+name = "Development Server"
+author = 47087801
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "composer install --no-dev"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "php -S 0.0.0.0:5000 -t public"
+
+[[workflows.workflow]]
+name = "Run Migrations"
+author = 47087801
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "php scripts/migrate.php"
+
+[[workflows.workflow]]
+name = "Run Tests"
+author = 47087801
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "vendor/bin/phpunit --configuration tests/phpunit.xml"

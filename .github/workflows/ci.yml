@@ -100,3 +100,91 @@ jobs:
           SFTP_PASS: ${{ secrets.SFTP_PASS }}
           SFTP_PATH: ${{ secrets.SFTP_PATH }}
         run: bash scripts/deploy.sh
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: webapp_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        extensions: mbstring, xml, ctype, iconv, intl, pdo, pdo_mysql
+        coverage: none
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install PHP dependencies
+      run: composer install --no-progress --no-suggest --no-interaction --prefer-dist --optimize-autoloader
+    
+    - name: Install Node dependencies
+      run: npm ci
+    
+    - name: Setup environment
+      run: |
+        cp .env.example .env
+        sed -i 's/DB_HOST=127.0.0.1/DB_HOST=127.0.0.1/' .env
+        sed -i 's/DB_NAME=webapp/DB_NAME=webapp_test/' .env
+        sed -i 's/DB_USER=webapp/DB_USER=root/' .env
+        sed -i 's/DB_PASS=secret/DB_PASS=root/' .env
+    
+    - name: Run migrations
+      run: php scripts/migrate.php
+    
+    - name: Run PHP tests
+      run: vendor/bin/phpunit --configuration tests/phpunit.xml
+    
+    - name: Start PHP server
+      run: php -S 0.0.0.0:5000 -t public &
+    
+    - name: Wait for server
+      run: sleep 5
+    
+    - name: Run E2E tests
+      run: npx cypress run --headless
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: test-results
+        path: |
+          cypress/screenshots
+          cypress/videos
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to server
+      run: |
+        echo "🚀 Deployment would run here"
+        echo "Using deploy.sh script with SFTP"
