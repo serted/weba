@@ -5,9 +5,13 @@ session_start();
 if (empty($_SESSION['admin_id'])) { header('Location: /admin/login.php'); exit; }
 if (($_SESSION['admin_role'] ?? 'admin') !== 'super-admin') { http_response_code(403); exit('Forbidden'); }
 
-$dotenv = Dotenv\Dotenv::createImmutable(dirname(__DIR__)); $dotenv->safeLoad();
-$dsn = sprintf("mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4", $_ENV['DB_HOST'], $_ENV['DB_PORT'], $_ENV['DB_NAME']);
-$pdo = new PDO($dsn, $_ENV['DB_USER'], $_ENV['DB_PASS'], [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+use Dotenv\Dotenv;
+
+$dotenv = Dotenv::createImmutable(dirname(__DIR__)); 
+$dotenv->safeLoad();
+
+// Используем тот же подход что и в config/db.php
+$pdo = require __DIR__ . '/../config/db.php';
 
 $logs = $pdo->query("SELECT * FROM admin_logs ORDER BY id DESC LIMIT 200")->fetchAll();
 ?><!doctype html>

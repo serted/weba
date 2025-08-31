@@ -1,0 +1,62 @@
+# Dependencies
+/vendor/
+/node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Cache
+.phpunit.cache/
+*.cache
+
+# Build outputs
+/dist/
+/build/
+
+# Reports
+/reports/*.txt
+/reports/*.json
+/reports/*.flag
+
+# Database
+*.sqlite
+*.sqlite3
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+vendor/composer/tmp-*.zip~
+
+# Cypress
+cypress/screenshots/
+cypress/videos/
+
+# Testing and Baseline Capture
+/baseline/
+/screenshots/
+/har/
+/deploy_package/
+deploy_package.zip
+deploy_package_report.txt
+deploy_backup_*/
+
+# Playwright
+test-results/
+playwright-report/

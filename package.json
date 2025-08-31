@@ -2,12 +2,25 @@
   "name": "webapp-qa",
   "version": "1.0.0",
   "scripts": {
-    "replit:qa": "bash scripts/full-qa.sh"
+    "replit:qa": "bash scripts/full-qa.sh",
+    "baseline": "node scripts/collect-baseline.js",
+    "visual-regression": "node scripts/visual-regression.js",
+    "html-diff": "node scripts/html-diff.js",
+    "har-diff": "node scripts/har-diff.js",
+    "final-verification": "node scripts/final-verification.js",
+    "cypress:modal": "npx cypress run --spec \"cypress/e2e/modal.cy.js\" --headless",
+    "cypress:auth": "npx cypress run --spec \"cypress/e2e/auth-ui.cy.js\" --headless",
+    "cypress:all": "npx cypress run --headless",
+    "pack": "bash scripts/pack.sh"
   },
   "devDependencies": {
     "cypress": "^13.17.0",
     "pixelmatch": "^5.3.0",
     "pngjs": "^7.0.0",
-    "puppeteer": "^21.11.0"
+    "puppeteer": "^21.11.0",
+    "playwright": "^1.40.0",
+    "html-differ": "^1.4.0",
+    "diff": "^5.0.0",
+    "har-validator": "^5.1.5"
   }
 }
