@@ -10,10 +10,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use Dotenv\Dotenv;
+
 try {
-    require_once __DIR__ . '/../vendor/autoload.php';
-    
-    use Dotenv\Dotenv;
     
     // Загружаем переменные окружения
     $dotenv = Dotenv::createImmutable(__DIR__ . '/..');

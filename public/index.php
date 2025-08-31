@@ -63,15 +63,6 @@ $app->add(function ($request, $handler) {
         ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
 });
 
-// Загружаем маршруты
-$routes = require __DIR__ . '/../src/routes.php';
-$routes($app);
-
-// Запускаем приложение
-$app->run();e
-$app->addBodyParsingMiddleware();
-$app->addRoutingMiddleware();
-
 // Запуск сессий
 session_name('WEBAPPSESSID');
 if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -93,15 +84,9 @@ require_once __DIR__ . '/../src/Middleware/AuthMiddleware.php';
 $app->add(new \App\Middleware\CsrfMiddleware());
 $app->add(new \App\Middleware\RateLimitMiddleware());
 
-// Error handling
-$errorMiddleware = $app->addErrorMiddleware(
-    ($_ENV['APP_DEBUG'] ?? 'false') === 'true',
-    true,
-    true
-);
-
-// Подключаем маршруты
-require __DIR__ . '/../src/routes.php';
+// Загружаем маршруты
+$routes = require __DIR__ . '/../src/routes.php';
+$routes($app);
 
 // Запускаем приложение
 $app->run();

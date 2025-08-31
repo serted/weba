@@ -1,16 +1,14 @@
 
 -- Создание таблицы логов
 CREATE TABLE IF NOT EXISTS logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT,
     action VARCHAR(100) NOT NULL,
     details TEXT,
     ip_address VARCHAR(45),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_logs_user_id (user_id),
+    INDEX idx_logs_action (action),
+    INDEX idx_logs_created_at (created_at),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-);
-
--- Создание индексов
-CREATE INDEX IF NOT EXISTS idx_logs_user_id ON logs(user_id);
-CREATE INDEX IF NOT EXISTS idx_logs_action ON logs(action);
-CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs(created_at);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
