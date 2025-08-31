@@ -3,6 +3,10 @@
 
 echo "🔧 АВТОМАТИЧЕСКОЕ ИСПРАВЛЕНИЕ ВСЕХ ОШИБОК..."
 
+# Создаем необходимые директории
+mkdir -p reports/{screenshots,coverage,tests}
+mkdir -p ~/.webapp/{db,logs}
+
 # Проверяем .htaccess
 if [ -f "public/.htaccess" ]; then
     echo "✅ .htaccess найден"
@@ -13,16 +17,26 @@ RewriteEngine On
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^(.*)$ index.php [QSA,L]
+
+# CORS headers
+Header always set Access-Control-Allow-Origin "*"
+Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
 EOF
+    echo "✅ .htaccess создан"
 fi
 
 # Проверяем JavaScript файлы
 echo "🔍 Проверка JavaScript файлов..."
-find public/assets -name "*.js" -type f 2>/dev/null | while read file; do
-    if ! node -c "$file" 2>/dev/null; then
-        echo "⚠️ Синтаксическая ошибка в $file"
-    fi
-done
+if [ -d "public/assets" ]; then
+    find public/assets -name "*.js" -type f 2>/dev/null | while read file; do
+        if command -v node >/dev/null 2>&1; then
+            if ! node -c "$file" 2>/dev/null; then
+                echo "⚠️ Синтаксическая ошибка в $file"
+            fi
+        fi
+    done
+fi
 
 # Проверяем PHP файлы и исправляем синтаксические ошибки
 echo "🔍 Проверка PHP файлов..."
@@ -39,12 +53,16 @@ find . -name "*.php" -not -path "./vendor/*" -type f | while read file; do
         # Исправляем пробелы в начале файла
         sed -i 's/^[[:space:]]*<?php/<?php/' "$file"
         
-        # Исправляем unexpected use
-        if grep -q "^use " "$file" && ! grep -q "<?php" "$file"; then
-            echo "🔧 Добавление <?php тега в $file"
-            sed -i '1i<?php' "$file"
+        # Проверяем снова после исправления
+        if php -l "$file" >/dev/null 2>&1; then
+            echo "✅ Исправлен $file"
         fi
     fi
 done
 
-echo "✅ Автоматические исправления применены!"
+# Проверяем права доступа
+chmod +x scripts/*.sh 2>/dev/null || true
+chmod 644 public/*.php 2>/dev/null || true
+chmod 644 *.php 2>/dev/null || true
+
+echo "✅ Автоисправления завершены"
