@@ -2,56 +2,55 @@
 <?php
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET');
+header('Access-Control-Allow-Headers: Content-Type');
+
+require_once __DIR__ . '/../vendor/autoload.php';
 
 try {
-    // Проверяем подключение к базе данных
-    require_once __DIR__ . '/../vendor/autoload.php';
+    // Загружаем переменные окружения
+    $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
+    $dotenv->load();
+
+    // Подключение к базе данных
+    $socket = $_ENV['DB_SOCKET'] ?? null;
     
-    use Dotenv\Dotenv;
+    if ($socket && file_exists($socket)) {
+        $dsn = "mysql:unix_socket={$socket};dbname={$_ENV['DB_NAME']};charset=utf8mb4";
+    } else {
+        $dsn = "mysql:host={$_ENV['DB_HOST']};port={$_ENV['DB_PORT']};dbname={$_ENV['DB_NAME']};charset=utf8mb4";
+    }
     
-    $dotenv = Dotenv::createImmutable(__DIR__ . '/..');
-    $dotenv->safeLoad();
-    
-    $dsn = sprintf(
-        "mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4",
-        $_ENV['DB_HOST'] ?? '127.0.0.1',
-        $_ENV['DB_PORT'] ?? '3306',
-        $_ENV['DB_NAME'] ?? 'webapp'
+    $pdo = new PDO(
+        $dsn,
+        $_ENV['DB_USER'],
+        $_ENV['DB_PASS'],
+        [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]
     );
-    
-    $pdo = new PDO($dsn, $_ENV['DB_USER'] ?? 'webapp', $_ENV['DB_PASS'] ?? '', [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false
-    ]);
-    
-    // Простой запрос для проверки БД
-    $stmt = $pdo->query("SELECT 1 as test");
-    $result = $stmt->fetch();
-    
-    $response = [
+
+    // Проверяем подключение к БД
+    $stmt = $pdo->query('SELECT 1');
+    $dbStatus = $stmt ? 'connected' : 'failed';
+
+    echo json_encode([
         'status' => 'ok',
-        'timestamp' => time(),
-        'version' => '1.0.0',
-        'database' => 'connected',
-        'environment' => $_ENV['APP_ENV'] ?? 'production',
+        'timestamp' => date('Y-m-d H:i:s'),
+        'database' => $dbStatus,
         'php_version' => PHP_VERSION,
         'memory_usage' => memory_get_usage(true),
-        'uptime' => time() - $_SERVER['REQUEST_TIME']
-    ];
-    
-    http_response_code(200);
-    echo json_encode($response, JSON_PRETTY_PRINT);
-    
+        'server' => $_SERVER['SERVER_SOFTWARE'] ?? 'Unknown'
+    ]);
+
 } catch (Exception $e) {
-    $response = [
-        'status' => 'error',
-        'timestamp' => time(),
-        'error' => $e->getMessage(),
-        'php_version' => PHP_VERSION
-    ];
-    
     http_response_code(500);
-    echo json_encode($response, JSON_PRETTY_PRINT);
+    echo json_encode([
+        'status' => 'error',
+        'message' => $e->getMessage(),
+        'timestamp' => date('Y-m-d H:i:s')
+    ]);
 }
 ?>

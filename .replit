@@ -49,3 +49,28 @@ mode = "sequential"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "vendor/bin/phpunit --configuration tests/phpunit.xml"
+
+[[workflows.workflow]]
+name = "Full QA Cycle"
+author = 47087801
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/mysql-nix-setup.sh"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "composer install --no-dev --optimize-autoloader"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "php scripts/migrate.php"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/auto-fix.sh"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/full-qa.sh"

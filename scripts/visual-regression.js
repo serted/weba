@@ -1,144 +1,162 @@
 
-const puppeteer = require('puppeteer');
-const pixelmatch = require('pixelmatch');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 
-const BASE_URL = 'http://localhost:5000';
-const SCREENSHOTS_DIR = './reports/screenshots';
-const BASELINE_DIR = './cypress/fixtures/baseline';
+console.log('🎨 Запуск визуальной регрессии...');
 
-// Создаем директории если их нет
-if (!fs.existsSync(SCREENSHOTS_DIR)) {
-    fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+// Функция для создания скриншота через headless browser
+async function takeScreenshot(url, outputPath) {
+    return new Promise((resolve, reject) => {
+        const phantomjs = spawn('node', ['-e', `
+            const puppeteer = require('puppeteer');
+            (async () => {
+                try {
+                    const browser = await puppeteer.launch({headless: true});
+                    const page = await browser.newPage();
+                    await page.setViewport({width: 1200, height: 800});
+                    await page.goto('${url}', {waitUntil: 'networkidle2'});
+                    await page.screenshot({path: '${outputPath}', fullPage: true});
+                    await browser.close();
+                    console.log('Screenshot saved: ${outputPath}');
+                } catch(e) {
+                    console.error('Screenshot failed:', e.message);
+                    process.exit(1);
+                }
+            })();
+        `]);
+
+        phantomjs.on('close', (code) => {
+            if (code === 0) {
+                resolve();
+            } else {
+                reject(new Error(`Screenshot failed with code ${code}`));
+            }
+        });
+    });
 }
 
-if (!fs.existsSync(BASELINE_DIR)) {
-    fs.mkdirSync(BASELINE_DIR, { recursive: true });
+// Функция сравнения изображений
+function compareImages(img1Path, img2Path) {
+    if (!fs.existsSync(img1Path) || !fs.existsSync(img2Path)) {
+        console.log('⚠️ Baseline изображения не найдены, создаем новые...');
+        return 100; // Считаем как 100% совпадение для первого запуска
+    }
+
+    try {
+        const PNG = require('pngjs').PNG;
+        const pixelmatch = require('pixelmatch');
+        
+        const img1 = PNG.sync.read(fs.readFileSync(img1Path));
+        const img2 = PNG.sync.read(fs.readFileSync(img2Path));
+        const diff = new PNG({width: img1.width, height: img1.height});
+        
+        const numDiffPixels = pixelmatch(img1.data, img2.data, diff.data, img1.width, img1.height, {threshold: 0.1});
+        const totalPixels = img1.width * img1.height;
+        const similarity = ((totalPixels - numDiffPixels) / totalPixels) * 100;
+        
+        // Сохраняем diff изображение
+        fs.writeFileSync(img1Path.replace('.png', '-diff.png'), PNG.sync.write(diff));
+        
+        return similarity;
+    } catch (e) {
+        console.error('❌ Ошибка сравнения изображений:', e.message);
+        return 0;
+    }
 }
 
-async function takeScreenshots() {
-    console.log('🚀 Запуск визуального тестирования...');
-    
-    const browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+// Основная функция
+async function runVisualRegression() {
+    const baseUrl = 'http://localhost:5000';
+    const pages = [
+        '/',
+        '/login',
+        '/register',
+        '/admin',
+        '/category_code_sport.html',
+        '/category2_code_game.html'
+    ];
+
+    let allTestsPassed = true;
+    const results = [];
+
+    // Запускаем сервер
+    console.log('🚀 Запуск сервера...');
+    const server = spawn('php', ['-S', '0.0.0.0:5000', '-t', 'public'], {
+        stdio: 'pipe'
     });
     
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
-    
-    const pages = [
-        { name: 'homepage', url: '/' },
-        { name: 'login', url: '/login' },
-        { name: 'register', url: '/register' },
-        { name: 'admin', url: '/admin' }
-    ];
-    
-    let totalDiff = 0;
-    let pagesChecked = 0;
-    
-    for (const pageInfo of pages) {
+    // Ждем запуска сервера
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    for (const page of pages) {
+        const pageName = page.replace(/\//g, '_').replace('.html', '') || 'index';
+        const currentPath = `reports/screenshots/${pageName}-current.png`;
+        const baselinePath = `reports/screenshots/${pageName}-baseline.png`;
+        
+        console.log(`📸 Скриншот страницы: ${page}`);
+        
         try {
-            console.log(`📸 Создание скриншота: ${pageInfo.name}`);
+            // Делаем скриншот текущего состояния
+            await takeScreenshot(`${baseUrl}${page}`, currentPath);
             
-            await page.goto(`${BASE_URL}${pageInfo.url}`, { 
-                waitUntil: 'networkidle2',
-                timeout: 10000 
-            });
-            
-            // Ждем загрузки контента
-            await page.waitForTimeout(2000);
-            
-            const screenshotPath = path.join(SCREENSHOTS_DIR, `${pageInfo.name}.png`);
-            await page.screenshot({ 
-                path: screenshotPath,
-                fullPage: true 
-            });
-            
-            // Сравниваем с baseline если он существует
-            const baselinePath = path.join(BASELINE_DIR, `${pageInfo.name}.png`);
-            
+            // Сравниваем с baseline
+            let similarity = 100;
             if (fs.existsSync(baselinePath)) {
-                const diff = await compareImages(baselinePath, screenshotPath);
-                console.log(`📊 Различие для ${pageInfo.name}: ${diff.percentage.toFixed(2)}%`);
-                totalDiff += diff.percentage;
-                pagesChecked++;
-                
-                if (diff.percentage > 2) {
-                    console.log(`⚠️  Визуальное различие превышает порог для ${pageInfo.name}`);
-                }
+                similarity = compareImages(baselinePath, currentPath);
             } else {
-                console.log(`📁 Создан baseline для ${pageInfo.name}`);
-                fs.copyFileSync(screenshotPath, baselinePath);
+                // Первый запуск - копируем как baseline
+                fs.copyFileSync(currentPath, baselinePath);
+                console.log(`📋 Создан baseline для ${pageName}`);
             }
             
-        } catch (error) {
-            console.error(`❌ Ошибка при обработке ${pageInfo.name}:`, error.message);
+            const passed = similarity >= 98;
+            results.push({
+                page,
+                similarity: similarity.toFixed(2),
+                passed
+            });
+            
+            if (!passed) {
+                allTestsPassed = false;
+                console.log(`❌ ${page}: ${similarity.toFixed(2)}% совпадение (требуется ≥98%)`);
+            } else {
+                console.log(`✅ ${page}: ${similarity.toFixed(2)}% совпадение`);
+            }
+            
+        } catch (e) {
+            console.error(`❌ Ошибка скриншота ${page}:`, e.message);
+            allTestsPassed = false;
+            results.push({
+                page,
+                similarity: '0.00',
+                passed: false,
+                error: e.message
+            });
         }
     }
-    
-    await browser.close();
-    
-    const averageDiff = pagesChecked > 0 ? totalDiff / pagesChecked : 0;
-    console.log(`📊 Средний процент различий: ${averageDiff.toFixed(2)}%`);
-    
+
+    // Останавливаем сервер
+    server.kill();
+
     // Сохраняем отчет
     const report = {
         timestamp: new Date().toISOString(),
-        averageDifference: averageDiff,
-        threshold: 2,
-        passed: averageDiff <= 2,
-        pages: pages.length,
-        pagesChecked: pagesChecked
+        overall_passed: allTestsPassed,
+        results
     };
     
-    fs.writeFileSync(
-        path.join(SCREENSHOTS_DIR, 'visual-report.json'), 
-        JSON.stringify(report, null, 2)
-    );
+    fs.writeFileSync('reports/visual-regression-report.json', JSON.stringify(report, null, 2));
     
-    return averageDiff <= 2;
+    if (allTestsPassed) {
+        fs.writeFileSync('reports/visual-success.flag', 'SUCCESS');
+        console.log('✅ Все визуальные тесты прошли успешно!');
+    } else {
+        console.log('❌ Некоторые визуальные тесты не прошли проверку');
+    }
+    
+    return allTestsPassed;
 }
 
-async function compareImages(baselinePath, currentPath) {
-    const PNG = require('pngjs').PNG;
-    
-    const baseline = PNG.sync.read(fs.readFileSync(baselinePath));
-    const current = PNG.sync.read(fs.readFileSync(currentPath));
-    
-    const { width, height } = baseline;
-    const diff = new PNG({ width, height });
-    
-    const numDiffPixels = pixelmatch(
-        baseline.data, 
-        current.data, 
-        diff.data, 
-        width, 
-        height,
-        { threshold: 0.1 }
-    );
-    
-    const totalPixels = width * height;
-    const percentage = (numDiffPixels / totalPixels) * 100;
-    
-    // Сохраняем diff изображение
-    const diffPath = currentPath.replace('.png', '-diff.png');
-    fs.writeFileSync(diffPath, PNG.sync.write(diff));
-    
-    return {
-        numDiffPixels,
-        totalPixels,
-        percentage
-    };
-}
-
-takeScreenshots()
-    .then(passed => {
-        console.log(passed ? '✅ Визуальные тесты прошли' : '❌ Визуальные тесты провалились');
-        process.exit(passed ? 0 : 1);
-    })
-    .catch(error => {
-        console.error('❌ Критическая ошибка:', error);
-        process.exit(1);
-    });
+// Запуск
+runVisualRegression().catch(console.error);
