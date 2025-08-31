@@ -9,8 +9,6 @@ $dotenv->safeLoad();
 
 // Проверяем, есть ли SQLite путь
 if (!empty($_ENV['DB_SQLITE_PATH'])) {
-    echo "Подключение через SQLite: {$_ENV['DB_SQLITE_PATH']}\n";
-
     $dsn = "sqlite:" . $_ENV['DB_SQLITE_PATH'];
 
     try {
@@ -63,7 +61,9 @@ try {
         $rootPdo->exec("GRANT ALL PRIVILEGES ON `{$dbname}`.* TO '{$username}'@'%'");
         $rootPdo->exec("FLUSH PRIVILEGES");
         
-        echo "✅ База данных '{$dbname}' и пользователь '{$username}' созданы успешно\n";
+        if (php_sapi_name() === 'cli') {
+            echo "✅ База данных '{$dbname}' и пользователь '{$username}' созданы успешно\n";
+        }
         
         // Теперь подключаемся к созданной базе данных
         $pdo = new PDO($dsn, $username, $password, [
@@ -75,9 +75,11 @@ try {
         return $pdo;
         
     } catch (\PDOException $createError) {
-        echo "❌ Не удалось создать базу данных/пользователя: " . $createError->getMessage() . "\n";
-        echo "Подключение к: mysql://{$username}@{$host}:{$port}/{$dbname}\n";
-        echo "Исходная ошибка: " . $e->getMessage() . "\n";
+        if (php_sapi_name() === 'cli') {
+            echo "❌ Не удалось создать базу данных/пользователя: " . $createError->getMessage() . "\n";
+            echo "Подключение к: mysql://{$username}@{$host}:{$port}/{$dbname}\n";
+            echo "Исходная ошибка: " . $e->getMessage() . "\n";
+        }
         throw $e;
     }
 }

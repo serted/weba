@@ -81,7 +81,7 @@ require_once __DIR__ . '/../src/Middleware/RoleMiddleware.php';
 require_once __DIR__ . '/../src/Middleware/AuthMiddleware.php';
 
 // Добавляем middleware к приложению
-$app->add(new \App\Middleware\CsrfMiddleware());
+$app->add(new \App\Middleware\CsrfMiddleware($_ENV['CSRF_SECRET'] ?? 'default-csrf-secret'));
 $app->add(new \App\Middleware\RateLimitMiddleware());
 
 // Загружаем маршруты
